@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Lighthouse Correspondence</title>
+  </head>
+  <body>
+    <main class="app">
+      <section class="stage" aria-label="visual novel stage">
+        <div id="background"></div>
+        <div id="portraits" class="portraits"></div>
+        <div id="dialogue" class="dialogue"></div>
+        <div id="choices" class="choices"></div>
+      </section>
+      <aside class="sidebar">
+        <section class="panel">
+          <h2>The Lighthouse Correspondence</h2>
+          <p>DOMECS exemplar #3: event-driven visual novel, text-first DOM UI, snapshot save slots.</p>
+          <div class="toolbar">
+            <button id="advance">Advance</button>
+            <button id="save">Quick save</button>
+            <button id="load">Quick load</button>
+          </div>
+        </section>
+        <section class="panel">
+          <h3>Transcript</h3>
+          <ol id="transcript" class="transcript"></ol>
+        </section>
+        <section class="panel">
+          <h3>CG Gallery</h3>
+          <ul id="gallery" class="gallery"></ul>
+        </section>
+        <section class="panel">
+          <h3>Saves</h3>
+          <div id="saves" class="saves"></div>
+          <p id="status" class="status"></p>
+        </section>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
