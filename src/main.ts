@@ -1,5 +1,5 @@
-import { And, Has, Where, type EntityView } from 'domecs'
-import { defineView, mountDOM } from 'domecs-dom'
+import { And, Has, Where, type EntityView } from '@domecs/core'
+import { defineView, mountDOM } from '@domecs/dom'
 import {
   AdvanceTextEvent,
   ChoiceOption,

@@ -1,4 +1,4 @@
-import { defineComponent } from 'domecs'
+import { defineComponent } from '@domecs/core'
 
 export type EndingId = 'harbor_lights' | 'sealed_tower' | 'open_sea'
 export type ViewSlot = 'background' | 'portrait' | 'dialogue' | 'choice' | 'transcript' | 'gallery' | 'save'

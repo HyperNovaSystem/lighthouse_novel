@@ -1,4 +1,4 @@
-import { Has, createWorld, defineEvent, entry, type Plugin, type World, type WorldSnapshot } from 'domecs'
+import { Has, createWorld, defineEvent, entry, type Plugin, type World, type WorldSnapshot } from '@domecs/core'
 import {
   Affinity,
   Character,
