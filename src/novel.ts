@@ -1,4 +1,4 @@
-import { Has, createWorld, defineEvent, entry, type Plugin, type World, type WorldSnapshot } from '@domecs/core'
+import { Has, createWorld, defineEvent, entry, ok, type Plugin, type World, type WorldSnapshot } from '@domecs/core'
 import {
   Affinity,
   Character,
@@ -335,15 +335,14 @@ export function createLighthouseNovel(options: LighthouseNovelOptions = {}): Lig
 const pruneTransientOnlyEntitiesPlugin: Plugin = {
   name: 'lighthouse_novel.pruneTransientOnlyEntities',
   install() {
-    return {
-      onSnapshot(snap: unknown): unknown {
-        const worldSnap = snap as WorldSnapshot
+    return ok({
+      onSnapshot(snap: WorldSnapshot): WorldSnapshot {
         return {
-          ...worldSnap,
-          entities: worldSnap.entities.filter((entity) => Object.keys(entity.components).length > 0),
+          ...snap,
+          entities: snap.entities.filter((entity) => Object.keys(entity.components).length > 0),
         }
       },
-    }
+    })
   },
 }
 
