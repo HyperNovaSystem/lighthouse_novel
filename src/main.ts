@@ -1,4 +1,4 @@
-import { And, Has, Where, type EntityView } from '@domecs/core'
+import { And, Has, Where, isOk, type EntityView } from '@domecs/core'
 import { defineView, mountDOM } from '@domecs/dom'
 import {
   AdvanceTextEvent,
@@ -38,7 +38,7 @@ const { world } = refs
 const backgroundView = defineView({
   slot: 'background',
   query: And(Has(SceneView), Where(ViewTag, (tag) => tag.slot === 'background')),
-  changedOn: [SceneView, ViewTag],
+  changedOn: { mode: 'explicit', types: [SceneView, ViewTag] },
   create(entity) {
     const el = document.createElement('div')
     el.className = 'scene-bg'
@@ -51,7 +51,7 @@ const backgroundView = defineView({
 const portraitView = defineView({
   slot: 'portraits',
   query: And(Has(SceneView), Where(ViewTag, (tag) => tag.slot === 'portrait')),
-  changedOn: [SceneView, ViewTag],
+  changedOn: { mode: 'explicit', types: [SceneView, ViewTag] },
   create(entity) {
     const el = document.createElement('div')
     el.className = 'portrait'
@@ -64,7 +64,7 @@ const portraitView = defineView({
 const dialogueView = defineView({
   slot: 'dialogue',
   query: Has(TextSurface),
-  changedOn: [TextSurface],
+  changedOn: { mode: 'explicit', types: [TextSurface] },
   create(entity) {
     const el = document.createElement('article')
     el.className = 'dialogue-box'
@@ -77,7 +77,7 @@ const dialogueView = defineView({
 const choiceView = defineView({
   slot: 'choices',
   query: Has(ChoiceOption),
-  changedOn: [ChoiceOption],
+  changedOn: { mode: 'explicit', types: [ChoiceOption] },
   create(entity) {
     const button = document.createElement('button')
     button.className = 'choice'
@@ -90,7 +90,7 @@ const choiceView = defineView({
 const saveView = defineView({
   slot: 'saves',
   query: Has(SaveSlotView),
-  changedOn: [SaveSlotView],
+  changedOn: { mode: 'explicit', types: [SaveSlotView] },
   create(entity) {
     const button = document.createElement('button')
     button.className = 'save-slot'
@@ -100,7 +100,7 @@ const saveView = defineView({
   update: paintSave,
 })
 
-mountDOM(world, {
+const mountResult = mountDOM(world, {
   slots: {
     background: slots.background,
     portraits: slots.portraits,
@@ -110,6 +110,14 @@ mountDOM(world, {
   },
   views: [backgroundView, portraitView, dialogueView, choiceView, saveView],
 })
+if (!isOk(mountResult)) {
+  const error = mountResult.error
+  const detail =
+    error.kind === 'plugin_install_failed'
+      ? error.reason
+      : error.slot
+  throw new Error(`lighthouse_novel: mountDOM failed (${error.kind}): ${detail}`)
+}
 
 advanceButton.addEventListener('click', () => world.emit(AdvanceTextEvent, {}))
 saveButton.addEventListener('click', () => world.emit(SaveRequestedEvent, { slot: 'quick', label: 'Quick save' }))
@@ -133,7 +141,7 @@ world.step(0)
 paintTranscript()
 paintGallery()
 paintStatus()
-world.start({ dtClampMs: 50 })
+world.startLoop({ dtClampMs: 50 })
 
 function paintScene(el: HTMLElement, entity: EntityView): void {
   const tag = world.getComponent(entity.id, ViewTag)
