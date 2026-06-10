@@ -1,5 +1,6 @@
 import { And, Has, Where, isOk, type EntityView } from '@domecs/core'
 import { defineView, mountDOM } from '@domecs/dom'
+import { createLocalStorageStorage } from '@domecs/persist'
 import {
   AdvanceTextEvent,
   ChoiceOption,
@@ -32,7 +33,8 @@ const saveButton = must('save') as HTMLButtonElement
 const loadButton = must('load') as HTMLButtonElement
 const statusEl = must('status')
 
-const refs = createLighthouseNovel({})
+// localStorage-backed slots: saves survive a page reload (in-memory before).
+const refs = createLighthouseNovel({ storage: createLocalStorageStorage('lighthouse:') })
 const { world } = refs
 
 const backgroundView = defineView({

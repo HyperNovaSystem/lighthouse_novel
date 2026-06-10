@@ -1,5 +1,11 @@
-import { Has, createWorld, defineEvent, entry, type World, type WorldSnapshot } from '@domecs/core'
-import { pruneTransientOnlyEntities } from '@domecs/persist'
+import { Has, createWorld, defineEvent, describeError, entry, type World } from '@domecs/core'
+import {
+  createMemoryStorage,
+  load,
+  pruneTransientOnlyEntities,
+  save,
+  type Storage,
+} from '@domecs/persist'
 import {
   Affinity,
   Character,
@@ -28,19 +34,20 @@ export const ChoiceSelectedEvent = defineEvent<{ choiceId: string }>('ChoiceSele
 export const SaveRequestedEvent = defineEvent<{ slot: string; label?: string }>('SaveRequested')
 export const LoadRequestedEvent = defineEvent<{ slot: string }>('LoadRequested')
 
-export interface SaveSlotRecord {
+export interface SaveSlotMeta {
   slot: string
   label: string
   thumbnail: string
   tick: number
   nodeId: string
-  snapshot: WorldSnapshot
 }
 
 export interface LighthouseNovelOptions {
   script?: LighthouseScript
   seed?: number
   headless?: boolean
+  /** Save-slot backend. Defaults to an in-memory adapter (ephemeral session). */
+  storage?: Storage
 }
 
 export interface LighthouseNovelRefs {
@@ -49,7 +56,8 @@ export interface LighthouseNovelRefs {
   storyId: number
   characterIds: readonly number[]
   characterIdsByName: ReadonlyMap<string, number>
-  saveSlots: Map<string, SaveSlotRecord>
+  storage: Storage
+  listSaves(): SaveSlotMeta[]
   visibleChoices(): string[]
   choose(choiceId: string): void
   save(slot: string, label?: string): void
@@ -66,7 +74,7 @@ export function createLighthouseNovel(options: LighthouseNovelOptions = {}): Lig
   })
   world.use(pruneTransientOnlyEntities())
 
-  const saveSlots = new Map<string, SaveSlotRecord>()
+  const storage = options.storage ?? createMemoryStorage()
   const characterIdsByName = new Map<string, number>()
   const characterIds: number[] = []
   let viewEntityIds: number[] = []
@@ -116,26 +124,28 @@ export function createLighthouseNovel(options: LighthouseNovelOptions = {}): Lig
   })
 
   world.system('save-slot', { schedule: 'event', triggers: [SaveRequestedEvent] }, (ctx) => {
-    for (const event of ctx.events.of(SaveRequestedEvent)) {
+    const events = ctx.events.of(SaveRequestedEvent)
+    if (events.length === 0) return
+    for (const event of events) {
       const node = currentNode()
-      saveSlots.set(event.slot, {
-        slot: event.slot,
-        label: event.label ?? node.id,
-        thumbnail: node.background,
-        tick: world.time.tick,
-        nodeId: node.id,
-        snapshot: world.snapshot(),
+      const result = save(world, storage, event.slot, {
+        meta: {
+          label: event.label ?? node.id,
+          thumbnail: node.background,
+          tick: world.time.tick,
+          nodeId: node.id,
+        },
       })
+      if (!result.ok) logMessage(`Save to slot "${event.slot}" failed — ${describeError(result.error)}`)
     }
-    if (ctx.events.of(SaveRequestedEvent).length > 0) rebuildTransientViews()
+    rebuildTransientViews()
   })
 
   world.system('load-slot', { schedule: 'event', triggers: [LoadRequestedEvent] }, (ctx) => {
     const last = ctx.events.of(LoadRequestedEvent).at(-1)
     if (!last) return
-    const slot = saveSlots.get(last.slot)
-    if (!slot) return
-    world.restore(slot.snapshot)
+    const result = load(world, storage, last.slot)
+    if (!result.ok) logMessage(`Load from slot "${last.slot}" failed — ${describeError(result.error)}`)
     rebuildTransientViews()
   })
 
@@ -226,6 +236,44 @@ export function createLighthouseNovel(options: LighthouseNovelOptions = {}): Lig
     else if (nodeId === 'ending.open_sea') beat.ending = 'open_sea'
   }
 
+  function logMessage(text: string): void {
+    const transcript = world.getComponent(storyId, Transcript)
+    if (!transcript) return
+    transcript.lines.push({ nodeId: 'system.message', speaker: 'System', text })
+    world.markChanged(storyId, Transcript)
+  }
+
+  function readSlotMeta(slot: string): SaveSlotMeta | null {
+    const read = storage.read(slot)
+    if (!read.ok || read.value === null) return null
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(read.value)
+    } catch {
+      return null
+    }
+    if (!parsed || typeof parsed !== 'object') return null
+    const meta = (parsed as { meta?: Record<string, unknown> }).meta ?? {}
+    return {
+      slot,
+      label: typeof meta.label === 'string' ? meta.label : slot,
+      thumbnail: typeof meta.thumbnail === 'string' ? meta.thumbnail : '',
+      tick: typeof meta.tick === 'number' ? meta.tick : 0,
+      nodeId: typeof meta.nodeId === 'string' ? meta.nodeId : '',
+    }
+  }
+
+  function listSaveSlots(): SaveSlotMeta[] {
+    const listed = storage.list()
+    if (!listed.ok) return []
+    const out: SaveSlotMeta[] = []
+    for (const slot of listed.value) {
+      const meta = readSlotMeta(slot)
+      if (meta) out.push(meta)
+    }
+    return out
+  }
+
   function hasGalleryUnlock(key: string): boolean {
     for (const entity of world.query(Has(GalleryUnlock)).entities) {
       if (world.getComponent(entity.id, GalleryUnlock)?.key === key) return true
@@ -285,14 +333,14 @@ export function createLighthouseNovel(options: LighthouseNovelOptions = {}): Lig
     }
 
     let saveIndex = 0
-    for (const slot of saveSlots.values()) {
+    for (const meta of listSaveSlots()) {
       spawnView([
-        entry(ViewTag, ViewTag.create({ slot: 'save', key: slot.slot, index: saveIndex++ })),
+        entry(ViewTag, ViewTag.create({ slot: 'save', key: meta.slot, index: saveIndex++ })),
         entry(SaveSlotView, SaveSlotView.create({
-          slot: slot.slot,
-          label: slot.label,
-          thumbnail: slot.thumbnail,
-          tick: slot.tick,
+          slot: meta.slot,
+          label: meta.label,
+          thumbnail: meta.thumbnail,
+          tick: meta.tick,
         })),
       ])
     }
@@ -310,7 +358,10 @@ export function createLighthouseNovel(options: LighthouseNovelOptions = {}): Lig
     storyId,
     characterIds,
     characterIdsByName,
-    saveSlots,
+    storage,
+    listSaves() {
+      return listSaveSlots()
+    },
     visibleChoices() {
       return world.query(Has(ChoiceOption)).entities
         .map((entity) => world.getComponent(entity.id, ChoiceOption))

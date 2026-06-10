@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Has } from '@domecs/core'
+import { Has, err, normalizeCause } from '@domecs/core'
+import { createMemoryStorage, type Storage } from '@domecs/persist'
 import {
   AdvanceTextEvent,
   Affinity,
@@ -11,6 +12,7 @@ import {
   LoadRequestedEvent,
   NovelConfig,
   SaveRequestedEvent,
+  SaveSlotView,
   TextSurface,
   Transcript,
   ViewTag,
@@ -78,16 +80,25 @@ describe('The Lighthouse Correspondence exemplar', () => {
     expect(refs.world.query(Has(GalleryUnlock)).size).toBeGreaterThanOrEqual(1)
   })
 
-  it('stores named snapshot slots and restores story state while rebuilding transient views', () => {
+  it('stores named save slots via @domecs/persist and restores story state while rebuilding transient views', () => {
     const refs = createLighthouseNovel({ headless: true })
     refs.world.emit(AdvanceTextEvent, {})
     refs.world.stepOnce()
     refs.world.emit(SaveRequestedEvent, { slot: 'before-choice', label: 'Before first signal' })
     refs.world.stepOnce()
 
-    const saved = refs.saveSlots.get('before-choice')
+    const saved = refs.listSaves().find((meta) => meta.slot === 'before-choice')
     expect(saved?.label).toBe('Before first signal')
     expect(saved?.thumbnail).toContain('lighthouse')
+    expect(saved?.nodeId).toBe('prologue.lamp')
+
+    const read = refs.storage.read('before-choice')
+    expect(read.ok).toBe(true)
+    const envelope = JSON.parse(read.ok && read.value !== null ? read.value : '{}') as {
+      meta?: Record<string, unknown>
+    }
+    expect(envelope.meta?.label).toBe('Before first signal')
+    expect(refs.world.query(Has(SaveSlotView)).size).toBe(1)
 
     refs.world.emit(AdvanceTextEvent, {})
     refs.world.stepOnce()
@@ -102,6 +113,49 @@ describe('The Lighthouse Correspondence exemplar', () => {
     expect(refs.world.query(Has(ViewTag)).size).toBeGreaterThan(0)
     expect(refs.world.query(Has(TextSurface)).size).toBe(1)
     expect(refs.visibleChoices()).toHaveLength(0)
+  })
+
+  it('round-trips saves across novel instances sharing a storage adapter', () => {
+    const storage = createMemoryStorage()
+    const first = createLighthouseNovel({ headless: true, storage })
+    first.world.emit(AdvanceTextEvent, {})
+    first.world.stepOnce()
+    first.world.emit(SaveRequestedEvent, { slot: 'session', label: 'Session save' })
+    first.world.stepOnce()
+
+    const second = createLighthouseNovel({ headless: true, storage })
+    expect(second.listSaves().map((meta) => meta.slot)).toContain('session')
+    second.world.emit(LoadRequestedEvent, { slot: 'session' })
+    second.world.stepOnce()
+    expect(second.world.getComponent(second.storyId, CurrentBeat)!.nodeId).toBe('prologue.lamp')
+  })
+
+  it('surfaces save Result failures in the transcript message log', () => {
+    const memory = createMemoryStorage()
+    const storage: Storage = {
+      ...memory,
+      write: () =>
+        err({ kind: 'persist_io', op: 'save', cause: normalizeCause(new Error('disk full')), retryable: true }),
+    }
+    const refs = createLighthouseNovel({ headless: true, storage })
+    refs.world.emit(SaveRequestedEvent, { slot: 'quick', label: 'Quick save' })
+    refs.world.stepOnce()
+
+    const transcript = refs.world.getComponent(refs.storyId, Transcript)!
+    const last = transcript.lines.at(-1)!
+    expect(last.speaker).toBe('System')
+    expect(last.text).toContain('disk full')
+    expect(refs.listSaves()).toHaveLength(0)
+  })
+
+  it('surfaces a missing-slot load failure instead of silently ignoring it', () => {
+    const refs = createLighthouseNovel({ headless: true })
+    refs.world.emit(LoadRequestedEvent, { slot: 'nope' })
+    refs.world.stepOnce()
+
+    expect(refs.world.getComponent(refs.storyId, CurrentBeat)!.nodeId).toBe('prologue.arrival')
+    const transcript = refs.world.getComponent(refs.storyId, Transcript)!
+    expect(transcript.lines.some((line) => line.speaker === 'System' && line.text.includes('nope'))).toBe(true)
   })
 
   it('omits transient text and choice view components from saves', () => {
