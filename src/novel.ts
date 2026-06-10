@@ -1,4 +1,5 @@
-import { Has, createWorld, defineEvent, entry, ok, type Plugin, type World, type WorldSnapshot } from '@domecs/core'
+import { Has, createWorld, defineEvent, entry, type World, type WorldSnapshot } from '@domecs/core'
+import { pruneTransientOnlyEntities } from '@domecs/persist'
 import {
   Affinity,
   Character,
@@ -63,7 +64,7 @@ export function createLighthouseNovel(options: LighthouseNovelOptions = {}): Lig
     headless: options.headless ?? false,
     idle: true,
   })
-  world.use(pruneTransientOnlyEntitiesPlugin)
+  world.use(pruneTransientOnlyEntities())
 
   const saveSlots = new Map<string, SaveSlotRecord>()
   const characterIdsByName = new Map<string, number>()
@@ -330,20 +331,6 @@ export function createLighthouseNovel(options: LighthouseNovelOptions = {}): Lig
   }
 
   return refs
-}
-
-const pruneTransientOnlyEntitiesPlugin: Plugin = {
-  name: 'lighthouse_novel.pruneTransientOnlyEntities',
-  install() {
-    return ok({
-      onSnapshot(snap: WorldSnapshot): WorldSnapshot {
-        return {
-          ...snap,
-          entities: snap.entities.filter((entity) => Object.keys(entity.components).length > 0),
-        }
-      },
-    })
-  },
 }
 
 export function endingLabel(ending: EndingId | null): string {
